@@ -1,0 +1,22 @@
+Emperor version: 1.0.4
+
+Emperor class members:
+- animations_by: <class 'function'>
+- color_by: <class 'function'>
+- copy_support_files: <class 'function'>
+- make_emperor: <class 'function'>
+- opacity_by: <class 'function'>
+- render_base_dependencies: <class 'function'>
+- render_html: <class 'function'>
+- render_js: <class 'function'>
+- render_style: <class 'function'>
+- scale_by: <class 'function'>
+- set_axes: <class 'function'>
+- set_background_color: <class 'function'>
+- settings: <class 'property'>
+- shape_by: <class 'function'>
+- visibility_by: <class 'function'>
+
+make_emperor parameters:
+- self: required
+- standalone: False
