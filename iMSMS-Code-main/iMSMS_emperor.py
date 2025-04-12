@@ -4,6 +4,7 @@ from emperor import Emperor
 from emperor.util import get_emperor_support_files_dir
 from skbio.stats.ordination import pcoa
 from scipy.spatial.distance import pdist, squareform
+import os
 
 # Function that converts integer columns to range values
 def convert_to_ranges(df, num_bins=5):
@@ -69,15 +70,13 @@ else:
         index=demographic_data.index
     )
 
-# Create the Emperor visualization
-viz = Emperor(pcoa_results, demographic_data, remote=get_emperor_support_files_dir())
-
 # Define age colors
 age_ranges = demographic_data['age'].unique().tolist()
 age_ranges = [x for x in age_ranges if not pd.isna(x)]
 age_ranges.sort()  # Sort the ranges
 
-color_map = {
+# Define a custom color map for the age ranges
+custom_colors = {
     age_ranges[0]: '#1f77b4',  # blue
     age_ranges[1]: '#2ca02c',  # green
     age_ranges[2]: '#ffff00',  # yellow
@@ -85,23 +84,135 @@ color_map = {
     age_ranges[4]: '#d62728'   # red
 }
 
-# Set the visualization options using the available methods
-# Use the color_by method to set coloring to age
-viz.color_by('age', color_map)
+# Create the Emperor visualization
+viz = Emperor(pcoa_results, demographic_data, remote=get_emperor_support_files_dir())
+
+# Use Emperor's color_by method to set the initial coloring
+viz.color_by('age', custom_colors)
 
 # Set other visualization options
 viz.set_axes([0, 1, 2])  # Set axes to display (using indices 0, 1, 2 for pc1, pc2, pc3)
 
-# Create dictionaries for scaling and opacity (mapping each age range to a value)
-scale_dict = {age_range: 1.0 for age_range in age_ranges if not pd.isna(age_range)}
-opacity_dict = {age_range: 1.0 for age_range in age_ranges if not pd.isna(age_range)}
+# Create dictionaries for scaling and opacity
+scale_dict = {age_range: 1.0 for age_range in age_ranges}
+opacity_dict = {age_range: 1.0 for age_range in age_ranges}
 
 # Set scaling and opacity
 viz.scale_by('age', scale_dict)
 viz.opacity_by('age', opacity_dict)
 
-# Save the visualization to an HTML file
-with open('iMSMS-emperor-configured.html', 'w') as f:
-    f.write(viz.make_emperor(standalone=True))
+# Generate the base Emperor visualization HTML
+emperor_html = viz.make_emperor(standalone=True)
 
-print("Emperor visualization saved with preset colors for age variable.")
+# Define the exact JavaScript code that should be used to replace the custom code marker
+custom_js = """
+// AUTO-SELECT AGE FOR COLORING
+// This will select 'age' as the coloring variable when the visualization loads
+// Find the color controller and select 'age'
+if (ec.controllers && ec.controllers.color) {
+  // Set the metadata field to 'age'
+  setTimeout(function() {
+    // Set 'age' as the coloring category if available
+    var controller = ec.controllers.color;
+    
+    // First check if 'age' is available in the dropdown
+    var select = controller.$select[0];
+    var hasAge = false;
+    
+    for (var i = 0; i < select.options.length; i++) {
+      if (select.options[i].value === 'age') {
+        hasAge = true;
+        select.selectedIndex = i;
+        
+        // Trigger change event to apply the selection
+        $(select).trigger('change');
+        console.log('Auto-selected age for coloring');
+        break;
+      }
+    }
+    
+    if (!hasAge) {
+      console.log('Age category not found in available metadata');
+    }
+    
+    // Custom colors for age ranges - try to apply them if possible
+    // These map to the 5 age ranges in your data
+    var customColors = {
+      0: '#1f77b4', // blue
+      1: '#2ca02c', // green
+      2: '#ffff00', // yellow
+      3: '#ff7f0e', // orange
+      4: '#d62728' // red
+    };
+    
+    // Attempt to set custom colors if the editor exists
+    if (controller.colorEditor) {
+      // Try to set colors for each value
+      for (var value in customColors) {
+        controller.colorEditor.setValueColor(value, customColors[value]);
+      }
+    }
+  }, 1000); // Small delay to ensure controllers are fully initialized
+}
+"""
+
+# Look for the specific marker pattern in the HTML
+marker_pattern = "/*__custom_on_ready_code__*/"
+if marker_pattern in emperor_html:
+    # Replace the marker with our custom JavaScript
+    modified_html = emperor_html.replace(marker_pattern, marker_pattern + "\n      " + custom_js)
+else:
+    # If the marker isn't found, find a suitable insertion point
+    # Look for the end of the ec.ready function
+    ready_function_end = "ec.ready = function () {"
+    ready_end_pattern = "}"
+    
+    # Find the ec.ready function
+    start_idx = emperor_html.find(ready_function_end)
+    if start_idx != -1:
+        # Find the corresponding closing bracket
+        bracket_count = 1
+        idx = start_idx + len(ready_function_end)
+        while idx < len(emperor_html) and bracket_count > 0:
+            if emperor_html[idx] == '{':
+                bracket_count += 1
+            elif emperor_html[idx] == '}':
+                bracket_count -= 1
+            idx += 1
+        
+        # Insert our code just before the closing bracket
+        if bracket_count == 0 and idx > 0:
+            insertion_idx = idx - 1
+            modified_html = emperor_html[:insertion_idx] + "\n      " + custom_js + "\n    " + emperor_html[insertion_idx:]
+        else:
+            # If we can't find the right spot, just append the code to the ec.ready function
+            modified_html = emperor_html.replace("ec.ready = function () {", 
+                                            "ec.ready = function () {\n      " + custom_js)
+    else:
+        # If we can't find ec.ready, insert the code at a good fallback location
+        modified_html = emperor_html
+        print("Warning: Could not find a suitable location to insert custom JavaScript.")
+
+# Convert absolute paths to relative paths
+support_dir = get_emperor_support_files_dir()
+if support_dir in modified_html:
+    relative_html = modified_html.replace(support_dir + '/', '')
+else:
+    relative_html = modified_html
+
+# Ensure the output directory exists
+import os
+output_dir = "iMSMS_emperor_host_static_html"
+if not os.path.exists(output_dir):
+    os.makedirs(output_dir)
+
+# Write the relative path HTML directly to emperor.html in the specified folder
+output_path = os.path.join(output_dir, "emperor.html")
+with open(output_path, 'w') as f:
+    f.write(relative_html)
+
+print(f"Emperor visualization saved to {output_path} with relative paths and age coloring.")
+
+print("Emperor visualization saved with age coloring.")
+
+print("Script completed.")
